@@ -1,47 +1,53 @@
 /*
-mm.h - менеджер памяти.
+mm.c - менеджер памяти.
 Янин Ярослав Иванович
 Группа МК-101
 */
 
-#ifndef _MM_H_
-#define _MM_H_
+#include <stdlib.h>
+#include <stdio.h> 
+#include <string.h>
+#include "mm.h"
 
-#define MM_USE
-
-#ifdef MM_USE
-// список для связывания пустых блочков (удаленных) из-под освободившихся элементов
-typedef struct _MMEmptyStack {
-    struct _MMEmptyStack* next;
-} MMEmptyStack;
-#endif
-
-typedef struct _MemoryManager {
-    int size; // размер элемента, под которые будет "выделяться" память
-#ifdef MM_USE
-    void (*callback)(int ofs);  // пользовательская функция для перерасчета указателей при пересоздании блока  
-    int count;                  // количество элементов, которые можно разместить в блоке менеджера памяти
-    int delta;                  // количество элементов, на которые увеличивается блок при пересоздании в случае нехватки памяти
-    int border_ofs;             // смещение до неиспользуемой памяти внути блока
-    void* m;                    // блок менеджера памяти, из которого раздаем память
-    MMEmptyStack* empty;        // Голова стека освобожденных элементов
-#endif
-} MemoryManager;
+MemoryManager* _mm = NULL; // Глобальный указатель на наш менеджер памяти
 
 // Функция инициализирует менеджер памяти
 // <size> - размер одного элемента в байтах
-// <count> - стартовое количество элементов в блоке
+// <count> - количество элементов в блоке
 // <callback> - указатель на функцию перерасчета адресов при реаллокации
-int mm_initialize(int size, int count, void(*callback)(int ofs));
+int mm_initialize(int size, int count, void(*callback)(int ofs)) {
+    if (_mm != NULL) free(_mm); // Если менеджер уже был создан, удаляем старый
+
+    // Выделяем память под саму структуру MemoryManager
+    _mm = (MemoryManager*)malloc(sizeof(MemoryManager));
+    if (_mm == NULL) return -1;
+
+    _mm->size = size; // Запоминаем размер одного элемента
+
+#ifdef MM_USE
+    _mm->callback = callback; // Сохраняем коллбэк для пересчета указателей
+    _mm->delta = count;       // На сколько будем увеличивать массив, если память закончится
+    _mm->count = count;       // Сколько элементов вмещает текущий блок
+
+    // Выделяем один большой сплошной кусок памяти (массив байтов)
+    _mm->m = calloc(_mm->size, _mm->count);
+    if (_mm->m == NULL) {
+        free(_mm);    // Удаляем саму структуру менеджера, если не хватило памяти
+        _mm = NULL;
+        return -1;
+    }
+    _mm->border_ofs = 0;  // Смещение свободной памяти равно 0 (всё свободно)
+    _mm->empty = NULL;    // Стек свободных кусочков изначально пуст
+#endif
+
+    return 0;
+}
 
 // Функция очищает память, использующуюся менеджером
-void mm_finalize(void);
-
-// Функция выделяет память под новый элемент нужного размера
-void* mm_alloc(void);
-
-// Функция освобождает память из-под элемента (возвращает в менеджер)
-// <entry> - указатель на освобождаемый блок памяти
-void mm_free(void* entry);
-
-#endif  // _MM_H_
+void mm_finalize(void) {
+#ifdef MM_USE
+    if (_mm != NULL) free(_mm->m); // Сначала освобождаем большой массив
+#endif
+    if (_mm != NULL) free(_mm);           // Затем удаляем саму структуру менеджера
+    _mm = NULL;
+}
